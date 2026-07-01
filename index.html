@@ -523,8 +523,12 @@ async function submitExpense(){
   const res = await api('addExpense', payload);
   if (res.ok) {
     const msg = formType === 'handover'
-      ? `Handover of ${rupee(amt)} to ${recipient} logged. Running balance now ${rupee(res.balance)}.`
-      : `Saved. Running balance now ${rupee(res.balance)}.`;
+      ? (state.session.role === 'admin'
+          ? `Handover of ${rupee(amt)} to ${recipient} logged. Running balance now ${rupee(res.balance)}.`
+          : `Handover of ${rupee(amt)} to ${recipient} logged.`)
+      : (state.session.role === 'admin'
+          ? `Saved. Running balance now ${rupee(res.balance)}.`
+          : `Saved successfully.`);
     setState({ loading: false, toast: { err:false, msg } });
   } else {
     setState({ loading: false, toast: { err:true, msg: res.error || 'Could not save this entry.' } });
@@ -640,7 +644,7 @@ function reviewRow(e){
       </div>
       <div style="display:flex; align-items:center; gap:12px;">
         <span class="amt ${isIn?'in':'out'}">${isIn?'+':'−'}${rupee(amt)}</span>
-        <button class="btn ${verified?'ghost':''} small" data-verify="${e.row}" data-status="${verified?'Pending':'Verified'}" style="${verified?'':'background:var(--green);'}">
+        <button class="btn ${verified?'ghost':''} small" data-verify="${e.row}" data-sheet="${e.sheet}" data-status="${verified?'Pending':'Verified'}" style="${verified?'':'background:var(--green);'}">
           ${verified ? '✓ Verified' : 'Verify'}
         </button>
       </div>
@@ -650,9 +654,9 @@ function reviewRow(e){
 document.addEventListener('click', async (ev) => {
   const btn = ev.target.closest('[data-verify]');
   if (!btn) return;
-  const row = btn.dataset.verify, status = btn.dataset.status;
+  const row = btn.dataset.verify, status = btn.dataset.status, sheet = btn.dataset.sheet;
   btn.textContent = '…';
-  await api('updateStatus', { row, status });
+  await api('updateStatus', { row, status, sheet });
   screens.review();
 });
 
