@@ -218,11 +218,11 @@ const DEMO_META = {
 };
 const DEMO_LOGINS = {'arjun':{pin:'1234',role:'member'},'vikas':{pin:'2345',role:'member'},'sashank':{pin:'3456',role:'member'},'priya (admin)':{pin:'9999',role:'admin'}};
 let demoEntries = [
-  {row:1,date:'2026-06-29',description:'Petrol - Ntorq',category:'Fuel',inward:0,outward:452,paymentMethod:'Gpay',balance:20014,remarks:'',loggedBy:'Arjun',timestamp:'2026-06-29T09:12:00',status:'Verified'},
-  {row:2,date:'2026-06-29',description:'Porter - Site delivery Gachibowli',category:'Transport',inward:0,outward:480,paymentMethod:'Cash',balance:19534,remarks:'',loggedBy:'Vikas',timestamp:'2026-06-29T10:40:00',status:'Verified'},
-  {row:3,date:'2026-06-29',description:'Tea',category:'Tea',inward:0,outward:100,paymentMethod:'Cash',balance:19434,remarks:'',loggedBy:'Arjun',timestamp:'2026-06-29T11:02:00',status:'Pending'},
-  {row:4,date:'2026-06-30',description:'Shiva - Polycab wires',category:'Cash sales',inward:25000,outward:0,paymentMethod:'Gpay',balance:44434,remarks:'',loggedBy:'Sashank',timestamp:'2026-06-30T14:20:00',status:'Pending'},
-  {row:5,date:'2026-06-30',description:'Fan rods - 30 pcs',category:'Stock Purchase',inward:0,outward:1500,paymentMethod:'Cash',balance:42934,remarks:'',loggedBy:'Vikas',timestamp:'2026-06-30T15:05:00',status:'Pending'},
+  {row:1,sheet:'Demo',date:'2026-06-29',description:'Petrol - Ntorq',category:'Fuel',inward:0,outward:452,paymentMethod:'Gpay',balance:20014,remarks:'',loggedBy:'Arjun',timestamp:'2026-06-29T09:12:00',status:'Verified'},
+  {row:2,sheet:'Demo',date:'2026-06-29',description:'Porter - Site delivery Gachibowli',category:'Transport',inward:0,outward:480,paymentMethod:'Cash',balance:19534,remarks:'',loggedBy:'Vikas',timestamp:'2026-06-29T10:40:00',status:'Verified'},
+  {row:3,sheet:'Demo',date:'2026-06-29',description:'Tea',category:'Tea',inward:0,outward:100,paymentMethod:'Cash',balance:19434,remarks:'',loggedBy:'Arjun',timestamp:'2026-06-29T11:02:00',status:'Pending'},
+  {row:4,sheet:'Demo',date:'2026-06-30',description:'Shiva - Polycab wires',category:'Cash sales',inward:25000,outward:0,paymentMethod:'Gpay',balance:44434,remarks:'',loggedBy:'Sashank',timestamp:'2026-06-30T14:20:00',status:'Pending'},
+  {row:5,sheet:'Demo',date:'2026-06-30',description:'Fan rods - 30 pcs',category:'Stock Purchase',inward:0,outward:1500,paymentMethod:'Cash',balance:42934,remarks:'',loggedBy:'Vikas',timestamp:'2026-06-30T15:05:00',status:'Pending'},
 ];
 
 /* ============ STATE ============ */
@@ -261,7 +261,7 @@ function demoApi(action, params) {
       const inward = parseFloat(params.inward) || 0, outward = parseFloat(params.outward) || 0;
       const last = demoEntries[0] ? demoEntries[0].balance : 0;
       const balance = last + inward - outward;
-      const entry = { row: demoEntries.length + 1, date: params.date, description: params.description,
+      const entry = { row: demoEntries.length + 1, sheet: 'Demo', date: params.date, description: params.description,
         category: params.category, inward, outward, paymentMethod: params.paymentMethod, balance,
         remarks: params.remarks || '', loggedBy: params.loggedBy, timestamp: new Date().toISOString(), status: 'Pending',
         handedTo: params.recipient || '' };
@@ -282,6 +282,19 @@ function demoApi(action, params) {
         if (!params.newPin || params.newPin.length < 4) resolve({ ok: false, error: 'New PIN must be at least 4 digits.' });
         else { rec.pin = params.newPin; resolve({ ok: true }); }
       } else resolve({ ok: false, error: 'Current PIN did not match. PIN not changed.' });
+    } else if (action === 'updateExpense') {
+      const e = demoEntries.find(en => String(en.row) === String(params.row) && en.sheet === params.sheet);
+      if (!e) { resolve({ ok: false, error: 'Original entry not found.' }); return; }
+      const isAdmin = (params.requesterRole || '').toLowerCase() === 'admin';
+      const isOwner = e.loggedBy === params.requesterName;
+      if (!isAdmin && !(isOwner && e.status !== 'Verified')) {
+        resolve({ ok: false, error: 'You do not have permission to edit this entry.' }); return;
+      }
+      e.date = params.date; e.description = params.description; e.category = params.category;
+      e.paymentMethod = params.paymentMethod; e.remarks = params.remarks || '';
+      e.inward = parseFloat(params.inward) || 0; e.outward = parseFloat(params.outward) || 0;
+      e.handedTo = params.recipient || ''; e.status = 'Pending';
+      resolve({ ok: true, sheet: e.sheet, row: e.row });
     }
   }, 220));
 }
@@ -310,6 +323,9 @@ const ICONS = {
   chart: `<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><line x1="5" y1="20" x2="5" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="19" y1="20" x2="19" y2="14"/></svg>`,
   empty: `<svg width="46" height="46" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="4" y="3" width="16" height="18" rx="2"/><line x1="8" y1="8" x2="16" y2="8"/><line x1="8" y1="12" x2="16" y2="12"/></svg>`,
 };
+
+/* ============ CONSTANTS ============ */
+const INWARD_CATEGORIES = ['Cash sales', 'Miscellaneous'];
 
 /* ============ SCREENS ============ */
 const screens = {};
@@ -458,7 +474,7 @@ screens.log = function(){
       <div class="grid2">
         <div class="field">
           <label>Category</label>
-          <select id="f_cat" ${formType==='handover' ? 'disabled' : ''}>${(formType==='handover' ? ['Cash Handover'] : meta.categories).map(c=>`<option>${c}</option>`).join('')}</select>
+          <select id="f_cat" ${formType==='handover' ? 'disabled' : ''}>${(formType==='handover' ? ['Cash Handover'] : formType==='inward' ? INWARD_CATEGORIES : meta.categories).map(c=>`<option ${formType==='inward'&&c==='Cash sales'?'selected':''}>${c}</option>`).join('')}</select>
         </div>
         <div class="field">
           <label>Amount</label>
@@ -477,7 +493,7 @@ screens.log = function(){
       </div>
       <p style="font-size:11.5px; color:var(--muted); margin:-10px 0 16px;">You can backdate entries up to ${state.session.role==='admin' ? '3 months' : '7 days (1 week)'}.</p>
       <div class="field">
-        <label>Remarks <span style="font-weight:400; text-transform:none;">(optional)</span></label>
+        <label>Remarks ${formType==='inward' ? '<span style="font-weight:400; text-transform:none; color:var(--rust);">(required if category is Miscellaneous)</span>' : '<span style="font-weight:400; text-transform:none;">(optional)</span>'}</label>
         <textarea id="f_remarks" placeholder="Site name, split payment note, etc."></textarea>
       </div>
       <button class="btn ${formType==='handover' ? 'outward' : formType}" id="submitBtn">${state.loading ? 'Saving…' : (formType==='inward' ? 'Log cash in' : formType==='handover' ? 'Log handover' : 'Log cash out')}</button>
@@ -505,6 +521,10 @@ async function submitExpense(){
   const finalDesc = desc || (formType === 'handover' ? `Cash handover to ${recipient}` : '');
   if (!finalDesc || !amt || amt <= 0) {
     setState({ toast: { err: true, msg: 'Add a description and an amount greater than 0.' } });
+    return;
+  }
+  if (formType === 'inward' && cat === 'Miscellaneous' && !remarks) {
+    setState({ toast: { err: true, msg: 'Remarks are required when the category is Miscellaneous.' } });
     return;
   }
   const minDate = minAllowedDate(state.session.role);
@@ -536,22 +556,25 @@ async function submitExpense(){
 };
 
 /* ---- MY ENTRIES ---- */
+let entryCache = {};
 screens.mine = async function(){
   chrome('mine', `<h2 class="section-title">My entries</h2><p class="section-sub">Loading…</p>`);
   const res = await api('listEntries', { loggedBy: state.session.name });
   const list = res.ok ? res.entries : [];
+  list.forEach(e => { entryCache[`${e.sheet}::${e.row}`] = e; });
   chrome('mine', `
     <h2 class="section-title">My entries</h2>
     <p class="section-sub">Everything you've logged, most recent first.</p>
     <div class="card" style="padding:6px 20px;">
-      ${list.length ? list.map(entryRow).join('') : emptyState('Nothing logged yet', 'Entries you add will show up here.')}
+      ${list.length ? list.map(e => entryRow(e, 'mine')).join('') : emptyState('Nothing logged yet', 'Entries you add will show up here.')}
     </div>
   `);
 };
 
-function entryRow(e){
+function entryRow(e, from){
   const isIn = (e.inward || 0) > 0;
   const amt = isIn ? e.inward : e.outward;
+  const canEdit = state.session.role === 'admin' || e.status !== 'Verified';
   return `
     <div class="entry-row">
       <div class="entry-main">
@@ -567,6 +590,7 @@ function entryRow(e){
       <div style="text-align:right; display:flex; flex-direction:column; align-items:flex-end; gap:4px;">
         <span class="amt ${isIn?'in':'out'}">${isIn?'+':'−'}${rupee(amt)}</span>
         <span class="stamp ${e.status==='Verified'?'':'pending'}">${e.status || 'Pending'}</span>
+        ${canEdit ? `<button class="btn ghost small" style="padding:4px 10px; font-size:11.5px;" data-edit="${e.sheet}::${e.row}" data-from="${from}">Edit</button>` : ''}
       </div>
     </div>`;
 }
@@ -581,6 +605,7 @@ screens.review = async function(){
   chrome('review', `<h2 class="section-title">Review entries</h2><p class="section-sub">Loading…</p>`);
   const res = await api('listEntries', {});
   const all = res.ok ? res.entries : [];
+  all.forEach(e => { entryCache[`${e.sheet}::${e.row}`] = e; });
   const meta = state.meta;
   const filtered = all.filter(e => {
     if (reviewFilters.status && e.status !== reviewFilters.status) return false;
@@ -642,16 +667,28 @@ function reviewRow(e){
           ${e.handedTo ? `<span>·</span><span style="color:var(--brass); font-weight:600;">⇄ ${e.handedTo}</span>` : ''}
         </div>
       </div>
-      <div style="display:flex; align-items:center; gap:12px;">
+      <div style="text-align:right; display:flex; flex-direction:column; align-items:flex-end; gap:6px;">
         <span class="amt ${isIn?'in':'out'}">${isIn?'+':'−'}${rupee(amt)}</span>
-        <button class="btn ${verified?'ghost':''} small" data-verify="${e.row}" data-sheet="${e.sheet}" data-status="${verified?'Pending':'Verified'}" style="${verified?'':'background:var(--green);'}">
-          ${verified ? '✓ Verified' : 'Verify'}
-        </button>
+        <div style="display:flex; gap:6px;">
+          <button class="btn ghost small" style="padding:4px 10px; font-size:11.5px;" data-edit="${e.sheet}::${e.row}" data-from="review">Edit</button>
+          <button class="btn ${verified?'ghost':''} small" style="padding:4px 10px; font-size:11.5px; ${verified?'':'background:var(--green);'}" data-verify="${e.row}" data-sheet="${e.sheet}" data-status="${verified?'Pending':'Verified'}">
+            ${verified ? '✓ Verified' : 'Verify'}
+          </button>
+        </div>
       </div>
     </div>`;
 }
 
 document.addEventListener('click', async (ev) => {
+  const editBtn = ev.target.closest('[data-edit]');
+  if (editBtn) {
+    const entry = entryCache[editBtn.dataset.edit];
+    if (entry) {
+      editFormType = (entry.handedTo) ? 'handover' : ((entry.inward || 0) > 0 ? 'inward' : 'outward');
+      setState({ screen: 'editentry', editingEntry: entry, editReturnScreen: editBtn.dataset.from, editToast: null });
+    }
+    return;
+  }
   const btn = ev.target.closest('[data-verify]');
   if (!btn) return;
   const row = btn.dataset.verify, status = btn.dataset.status, sheet = btn.dataset.sheet;
@@ -660,7 +697,128 @@ document.addEventListener('click', async (ev) => {
   screens.review();
 });
 
-/* ---- REPORTS (admin) ---- */
+/* ---- EDIT ENTRY ---- */
+let editFormType = 'outward';
+screens.editentry = function(){
+  const meta = state.meta;
+  const e = state.editingEntry;
+  if (!e) { setState({ screen: state.editReturnScreen || 'mine' }); return; }
+  const isAdmin = state.session.role === 'admin';
+  const isOwner = e.loggedBy === state.session.name;
+  if (!isAdmin && !(isOwner && e.status !== 'Verified')) {
+    chrome(state.editReturnScreen || 'mine', `
+      <h2 class="section-title">Can't edit this entry</h2>
+      <p class="section-sub">This entry has already been verified. Ask an admin if it needs a correction.</p>
+      <button class="btn ghost" id="backBtn">Back</button>
+    `);
+    document.getElementById('backBtn').onclick = () => setState({ screen: state.editReturnScreen || 'mine' });
+    return;
+  }
+
+  const catOptions = editFormType === 'handover' ? ['Cash Handover'] : editFormType === 'inward' ? INWARD_CATEGORIES : meta.categories;
+
+  chrome(state.editReturnScreen || 'mine', `
+    <h2 class="section-title">Edit entry</h2>
+    <p class="section-sub">Originally logged by ${e.loggedBy} on ${fmtDate(e.date)}. Saving will mark it Pending again for re-verification.</p>
+    ${state.editToast ? `<div class="receipt-toast ${state.editToast.err?'err':''}">${state.editToast.err?'⚠️':'✓'} <span>${state.editToast.msg}</span></div>` : ''}
+    <div class="card">
+      <div class="toggle-row">
+        <button type="button" class="toggle-btn ${editFormType==='outward'?'active outward':''}" id="editTypeOutward">− Cash Out</button>
+        <button type="button" class="toggle-btn ${editFormType==='inward'?'active inward':''}" id="editTypeInward">+ Cash In</button>
+        <button type="button" class="toggle-btn ${editFormType==='handover'?'active handover':''}" id="editTypeHandover">⇄ Hand Over</button>
+      </div>
+      ${editFormType === 'handover' ? `
+      <div class="field">
+        <label>Hand over to</label>
+        <select id="ef_recipient">
+          <option value="">Select team member</option>
+          ${meta.team.filter(n => n !== e.loggedBy).map(n=>`<option ${e.handedTo===n?'selected':''}>${n}</option>`).join('')}
+        </select>
+      </div>` : ''}
+      <div class="field">
+        <label>Description</label>
+        <input id="ef_desc" type="text" value="${(e.description||'').replace(/"/g,'&quot;')}">
+      </div>
+      <div class="grid2">
+        <div class="field">
+          <label>Category</label>
+          <select id="ef_cat" ${editFormType==='handover' ? 'disabled' : ''}>${catOptions.map(c=>`<option ${e.category===c?'selected':''}>${c}</option>`).join('')}</select>
+        </div>
+        <div class="field">
+          <label>Amount</label>
+          <div class="amount-input-wrap"><span class="rupee">₹</span><input id="ef_amt" type="number" inputmode="decimal" value="${e.inward || e.outward || ''}"></div>
+        </div>
+      </div>
+      <div class="grid2">
+        <div class="field">
+          <label>Payment method</label>
+          <select id="ef_pay">${meta.paymentMethods.map(p=>`<option ${e.paymentMethod===p?'selected':''}>${p}</option>`).join('')}</select>
+        </div>
+        <div class="field">
+          <label>Date</label>
+          <input id="ef_date" type="date" value="${(e.date||'').slice(0,10)}" min="${minAllowedDate(state.session.role)}" max="${todayISO()}">
+        </div>
+      </div>
+      <div class="field">
+        <label>Remarks ${editFormType==='inward' ? '<span style="font-weight:400; text-transform:none; color:var(--rust);">(required if category is Miscellaneous)</span>' : '<span style="font-weight:400; text-transform:none;">(optional)</span>'}</label>
+        <textarea id="ef_remarks">${e.remarks || ''}</textarea>
+      </div>
+      <button class="btn ${editFormType==='handover' ? 'outward' : editFormType}" id="editSubmitBtn">${state.loading ? 'Saving…' : 'Save changes'}</button>
+      <button class="btn ghost" style="margin-top:8px;" id="editCancelBtn">Cancel</button>
+    </div>
+  `);
+  document.getElementById('editTypeOutward').onclick = () => { editFormType='outward'; render(); };
+  document.getElementById('editTypeInward').onclick = () => { editFormType='inward'; render(); };
+  document.getElementById('editTypeHandover').onclick = () => { editFormType='handover'; render(); };
+  document.getElementById('editCancelBtn').onclick = () => setState({ screen: state.editReturnScreen || 'mine' });
+  document.getElementById('editSubmitBtn').onclick = submitEditExpense;
+};
+
+async function submitEditExpense(){
+  const e = state.editingEntry;
+  const desc = document.getElementById('ef_desc').value.trim();
+  const amt = parseFloat(document.getElementById('ef_amt').value);
+  const cat = editFormType === 'handover' ? 'Cash Handover' : document.getElementById('ef_cat').value;
+  const pay = document.getElementById('ef_pay').value;
+  const date = document.getElementById('ef_date').value;
+  const remarks = document.getElementById('ef_remarks').value.trim();
+  const recipient = editFormType === 'handover' ? document.getElementById('ef_recipient').value : '';
+
+  if (editFormType === 'handover' && !recipient) {
+    setState({ editToast: { err: true, msg: "Choose who you're handing this cash to." } });
+    return;
+  }
+  if (!desc || !amt || amt <= 0) {
+    setState({ editToast: { err: true, msg: 'Add a description and an amount greater than 0.' } });
+    return;
+  }
+  if (editFormType === 'inward' && cat === 'Miscellaneous' && !remarks) {
+    setState({ editToast: { err: true, msg: 'Remarks are required when the category is Miscellaneous.' } });
+    return;
+  }
+  const minDate = minAllowedDate(state.session.role);
+  if (date < minDate || date > todayISO()) {
+    const limitText = state.session.role === 'admin' ? '3 months' : '7 days';
+    setState({ editToast: { err: true, msg: `You can only backdate entries up to ${limitText}. Pick a date on or after ${fmtDate(minDate)}.` } });
+    return;
+  }
+  setState({ loading: true, editToast: null });
+  const payload = {
+    sheet: e.sheet, row: e.row,
+    date, description: desc, category: cat, paymentMethod: pay, remarks, recipient,
+    requesterName: state.session.name, requesterRole: state.session.role,
+    inward: editFormType === 'inward' ? amt : 0,
+    outward: (editFormType === 'outward' || editFormType === 'handover') ? amt : 0,
+  };
+  const res = await api('updateExpense', payload);
+  if (res.ok) {
+    setState({ loading: false, screen: state.editReturnScreen || 'mine' });
+  } else {
+    setState({ loading: false, editToast: { err: true, msg: res.error || 'Could not save changes.' } });
+  }
+}
+
+
 screens.reports = async function(){
   chrome('reports', `<h2 class="section-title">Reports</h2><p class="section-sub">Loading…</p>`);
   const res = await api('listEntries', {});
