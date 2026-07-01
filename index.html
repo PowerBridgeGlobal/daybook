@@ -295,6 +295,25 @@ function demoApi(action, params) {
       e.inward = parseFloat(params.inward) || 0; e.outward = parseFloat(params.outward) || 0;
       e.handedTo = params.recipient || ''; e.status = 'Pending';
       resolve({ ok: true, sheet: e.sheet, row: e.row });
+    } else if (action === 'getCurrentBalance') {
+      const latest = demoEntries.slice().sort((a,b) => new Date(b.date) - new Date(a.date))[0];
+      resolve({ ok: true, balance: latest ? latest.balance : 0 });
+    } else if (action === 'setBalance') {
+      if ((params.requesterRole || '').toLowerCase() !== 'admin') { resolve({ ok: false, error: 'Only admins can adjust the balance.' }); return; }
+      const declared = parseFloat(params.declaredBalance);
+      if (isNaN(declared)) { resolve({ ok: false, error: 'Enter a valid balance amount.' }); return; }
+      if (!params.remarks || !params.remarks.trim()) { resolve({ ok: false, error: 'Add a remark explaining this adjustment.' }); return; }
+      const latest = demoEntries.slice().sort((a,b) => new Date(b.date) - new Date(a.date))[0];
+      const prior = latest ? latest.balance : 0;
+      const delta = declared - prior;
+      if (delta !== 0) {
+        const entry = { row: demoEntries.length + 1, sheet: 'Demo', date: params.date, description: 'Balance adjustment (admin override)',
+          category: 'Balance Adjustment', inward: delta > 0 ? delta : 0, outward: delta < 0 ? -delta : 0,
+          paymentMethod: 'Adjustment', balance: declared, remarks: params.remarks, loggedBy: params.requesterName,
+          timestamp: new Date().toISOString(), status: 'Verified', handedTo: '' };
+        demoEntries = [entry, ...demoEntries];
+      }
+      resolve({ ok: true, delta, balance: declared });
     }
   }, 220));
 }
@@ -840,6 +859,8 @@ screens.reports = async function(){
     <h2 class="section-title">Reports</h2>
     <p class="section-sub">Where the cash is going, across ${all.length} logged entries.</p>
 
+    <button class="btn ghost small" id="reconcileBtn" style="margin-bottom:16px;">⚖ Reconcile / override balance</button>
+
     <div class="stat-grid">
       <div class="stat"><div class="label">Total Inward</div><div class="val" style="color:var(--green)">${rupee(totalIn)}</div></div>
       <div class="stat"><div class="label">Total Outward</div><div class="val" style="color:var(--rust)">${rupee(totalOut)}</div></div>
@@ -867,7 +888,76 @@ screens.reports = async function(){
         </div>`).join('') : emptyState('No spend yet','')}
     </div>
   `);
+  document.getElementById('reconcileBtn').onclick = () => setState({ screen: 'adjustbalance', balanceToast: null });
 };
+
+/* ---- RECONCILE / OVERRIDE BALANCE (admin) ---- */
+screens.adjustbalance = async function(){
+  chrome('reports', `<h2 class="section-title">Reconcile balance</h2><p class="section-sub">Loading current balance…</p>`);
+  const res = await api('getCurrentBalance', {});
+  const current = res.ok ? res.balance : 0;
+
+  chrome('reports', `
+    <h2 class="section-title">Reconcile balance</h2>
+    <p class="section-sub">The ledger currently calculates cash-in-hand as:</p>
+    <div class="card" style="text-align:center;">
+      <div style="font-family:var(--mono); font-size:32px; font-weight:700; color:var(--navy);">${rupee(current)}</div>
+      <p style="color:var(--muted); font-size:12.5px; margin-top:6px;">as of the most recent logged entry</p>
+    </div>
+    ${state.balanceToast ? `<div class="receipt-toast ${state.balanceToast.err?'err':''}">${state.balanceToast.err?'⚠️':'✓'} <span>${state.balanceToast.msg}</span></div>` : ''}
+    <div class="card">
+      <p style="font-size:13px; color:var(--muted); margin-top:0;">
+        If a physical cash count doesn't match this, enter the correct amount below. This won't silently
+        overwrite the number — it adds a normal, visible ledger entry for the difference, dated below, so
+        there's a clear record of the correction.
+      </p>
+      <div class="field">
+        <label>Actual balance (from physical count)</label>
+        <div class="amount-input-wrap"><span class="rupee">₹</span><input id="bal_amt" type="number" inputmode="decimal" value="${current}"></div>
+      </div>
+      <div class="field">
+        <label>Date</label>
+        <input id="bal_date" type="date" value="${todayISO()}" min="${minAllowedDate('admin')}" max="${todayISO()}">
+      </div>
+      <div class="field">
+        <label>Remarks <span style="font-weight:400; text-transform:none; color:var(--rust);">(required — explain the adjustment)</span></label>
+        <textarea id="bal_remarks" placeholder="e.g. Physical cash count on 1 Jul found ₹500 short"></textarea>
+      </div>
+      <button class="btn" id="balSubmitBtn">${state.loading ? 'Saving…' : 'Update balance'}</button>
+      <button class="btn ghost" style="margin-top:8px;" id="balCancelBtn">Cancel</button>
+    </div>
+  `);
+  document.getElementById('balCancelBtn').onclick = () => setState({ screen: 'reports' });
+  document.getElementById('balSubmitBtn').onclick = submitBalanceAdjustment;
+};
+
+async function submitBalanceAdjustment(){
+  const declaredBalance = document.getElementById('bal_amt').value;
+  const date = document.getElementById('bal_date').value;
+  const remarks = document.getElementById('bal_remarks').value.trim();
+  if (declaredBalance === '' || isNaN(parseFloat(declaredBalance))) {
+    setState({ balanceToast: { err: true, msg: 'Enter a valid balance amount.' } });
+    return;
+  }
+  if (!remarks) {
+    setState({ balanceToast: { err: true, msg: 'Add a remark explaining this adjustment.' } });
+    return;
+  }
+  setState({ loading: true, balanceToast: null });
+  const res = await api('setBalance', {
+    declaredBalance, date, remarks,
+    requesterName: state.session.name, requesterRole: state.session.role,
+  });
+  if (res.ok) {
+    const msg = res.delta === 0
+      ? 'No adjustment needed — the ledger already matches.'
+      : `Balance updated. ${res.delta > 0 ? 'Added' : 'Deducted'} ${rupee(Math.abs(res.delta))} to bring it to ${rupee(res.balance)}.`;
+    alert(msg); // the adjustment is also visible as a normal entry in Review
+    setState({ loading: false, screen: 'reports' });
+  } else {
+    setState({ loading: false, balanceToast: { err: true, msg: res.error || 'Could not update balance.' } });
+  }
+}
 
 /* ============ INIT ============ */
 async function init(){
